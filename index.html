@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Galaxy Bubble Game</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // --- PENGATURAN RESOLUSI VIRTUAL (Agar lancar di Android berbagai ukuran) ---
+        const VIRTUAL_WIDTH = 480;
+        const VIRTUAL_HEIGHT = 800;
+        canvas.width = VIRTUAL_WIDTH;
+        canvas.height = VIRTUAL_HEIGHT;
+
+        // --- STATE GAME ---
+        let gameState = "SPLASH"; // SPLASH, PLAYING, GAMEOVER
+
+        // --- ASSETS MANAGEMENT ---
+        // 1. Gambar
+        const bgImg = new Image();
+        bgImg.src = "image/bg-galaxy.png";
+
+        const logoImg = new Image();
+        logoImg.src = "image/logo-bubble.png";
+
+        // 2. Audio (Aman untuk kebijakan Autoplay Android)
+        const bgm = new Audio();
+        bgm.src = "audio/bgm-galaxy.mp3"; // Ganti dengan path musik Anda
+        bgm.loop = true;
+
+        const sfxPop = new Audio();
+        sfxPop.src = "audio/pop.mp3"; // Ganti dengan path efek suara Anda
+
+        let assetsLoaded = 0;
+        const totalAssets = 2;
+        function assetLoaded() {
+            assetsLoaded++;
+        }
+        bgImg.onload = assetLoaded;
+        logoImg.onload = assetLoaded;
+
+        // --- FUNGSI AUDIO (Solusi unlock audio di Android) ---
+        function initAudio() {
+            if (bgm.paused) {
+                bgm.play().catch(e => console.log("Audio dimainkan setelah interaksi user."));
+            }
+        }
+
+        // --- INPUT HANDLER (Mendukung PC & Android) ---
+        function handleStartTrigger() {
+            if (gameState === "SPLASH") {
+                initAudio();
+                gameState = "PLAYING";
+            }
+        }
+
+        // Input Keyboard (PC)
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") handleStartTrigger();
+        });
+
+        // Input Sentuh / Klik (Android / PC)
+        canvas.addEventListener("touchstart", (e) => {
+            e.preventDefault(); // Mencegah sroll/zoom bawaan android
+            handleStartTrigger();
+            // Contoh trigger SFX saat bermain
+            if (gameState === "PLAYING") {
+                sfxPop.currentTime = 0;
+                sfxPop.play();
+            }
+        }, { passive: false });
+
+        canvas.addEventListener("mousedown", () => {
+            handleStartTrigger();
+        });
+
+
+        // --- RENDERING FUNCTIONS ---
+
+        function drawBrandSplashScreen() {
+            // 1. Gambar Latar Belakang Galaksi
+            if (bgImg.complete) {
+                ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = "#0a0519";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Overlay Gelap Transparan agar teks & logo terlihat kontras
+            ctx.fillStyle = "rgba(10, 5, 25, 0.6)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Menggambar Gambar logo-bubble.png tepat di tengah secara proporsional
+            if (logoImg.complete) {
+                const logoSize = 200;
+                ctx.drawImage(logoImg, canvas.width / 2 - (logoSize / 2), canvas.height / 3, logoSize, logoSize);
+            }
+
+            // 3. Teks Petunjuk (Disesuaikan untuk Mobile & PC)
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 18px 'Courier New'";
+            ctx.textAlign = "center";
+            ctx.shadowColor = "#00ffff";
+            ctx.shadowBlur = 10;
+            ctx.fillText("SENTUH LAYAR / ENTER", canvas.width / 2, canvas.height - 200);
+            ctx.fillText("UNTUK MEMULAI", canvas.width / 2, canvas.height - 170);
+            
+            // Reset shadow agar tidak merusak drawing lain
+            ctx.shadowBlur = 0;
+        }
+
+        function drawGame() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (gameState === "SPLASH") {
+                drawBrandSplashScreen();
+            } else if (gameState === "PLAYING") {
+                // Background saat bermain
+                if (bgImg.complete) ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+                
+                // Teks Simulasi Gameplay
+                ctx.fillStyle = "#fff";
+                ctx.font = "20px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText("GAME BERJALAN DI ANDROID", canvas.width / 2, canvas.height / 2);
+            }
+        }
+
+        // --- GAME LOOP ---
+        function loop() {
+            drawGame();
+            requestAnimationFrame(loop);
+        }
+
+        // Memulai Loop Game
+        loop();
+    </script>
+</body>
+</html>
