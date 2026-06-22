@@ -515,5 +515,21 @@
     // Eksekusi Render Game Awal
     gameLoop();
 </script>
+    
+    const logoImg = new Image();
+logoImg.src = 'logo-bubble.png';
+    function drawBrandSplashScreen() {
+    ctx.fillStyle = "rgba(10, 5, 25, 0.85)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Menggambar gambar logo.png di tengah layar mulai
+    ctx.drawImage(logoImg, canvas.width / 2 - 100, canvas.height / 2 - 150, 200, 200);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px Courier New";
+    ctx.fillText("TEKAN ENTER UNTUK MEMULAI", canvas.width / 2, canvas.height - 150);
+}
+
+</script>
 </body>
 </html>
