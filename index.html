@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>appleidgaming - Cosmic Galaxy Protector</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: rgba(0,0,0,0);
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #020208;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #game-wrapper {
+            position: relative;
+            width: 480px;
+            height: 640px;
+            box-shadow: 0 0 40px rgba(128, 0, 255, 0.6);
+            border: 2px solid rgba(0, 255, 255, 0.4);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            background: radial-gradient(circle at center, #0a0b2e 0%, #020208 100%);
+        }
+        #hud {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 0 0 8px #00ffff, 0 0 12px #8000ff;
+            letter-spacing: 1px;
+            z-index: 10;
+        }
+        #hud span {
+            color: #00ffff;
+        }
+        #hud span.danger {
+            color: #ff0055;
+            text-shadow: 0 0 8px #ff0055;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="hud">
+        <div>SKOR: <span id="score-val">0</span></div>
+        <div>SISTEM: <span id="lives-val">3</span> HP</div>
+    </div>
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
+</div>
+
+<script>
+    // =========================================================================
+    // PROTOKOL PERLINDUNGAN INTEGRITAS KODE & DOM LOCK (ANTI-PIRACY)
+    // =========================================================================
+    const SECURITY_POLICY = {
+        enforceDomainLock: true,
+        authorizedDomains: ["localhost", "127.0.0.1", "itch.io", "appleidgaming.itch.io"]
+    };
+
+    function verifyExecutionEnvironment() {
+        if (SECURITY_POLICY.enforceDomainLock) {
+            const currentHost = window.location.hostname;
+            const isAuthorized = SECURITY_POLICY.authorizedDomains.some(domain => currentHost.includes(domain));
+            if (!isAuthorized) {
+                document.body.innerHTML = `
+                    <div style="text-align: center; color: #ff0055; padding: 40px; font-family: monospace; background-color: #05020c; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                        <h2 style="font-size: 24px; text-shadow: 0 0 10px #ff0055;">EKSEKUSI ILEGAL TERDETEKSI</h2>
+                        <p style="color: #cccccc; max-width: 400px; line-height: 1.6;">Aset game ini dilindungi oleh hak cipta appleidgaming. Pembuatan frame luar (iframe) atau hosting ulang tanpa lisensi resmi dilarang secara hukum.</p>
+                    </div>
+                `;
+                throw new Error("Security Exception: Domain execution unauthorized.");
+            }
+        }
+    }
+    verifyExecutionEnvironment();
+
+    // =========================================================================
+    // SPESIFIKASI ENGINE KANVAS DAN AUDIO PROSEDURAL (AUDIO API)
+    // =========================================================================
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Sintesis Suara Prosedural untuk Menghindari Ketergantungan File Eksternal
+    const AudioSys = {
+        ctx: null,
+        init() {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        },
+        playLaser() {
+            this.init();
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = "sawtooth";
+            osc.frequency.setValueAtTime(880, this.ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(110, this.ctx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start();
+            osc.stop(this.ctx.currentTime + 0.15);
+        },
+        playExplosion() {
+            this.init();
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(40, this.ctx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start();
+            osc.stop(this.ctx.currentTime + 0.3);
+        }
+    };
+
+    // State Game Utama
+    let score = 0;
+    let lives = 3;
+    let isGameOver = false;
+    let keys = {};
+
+    // Peta Input Keyboard
+    window.addEventListener("keydown", e => {
+        keys[e.code] = true;
+        if (e.code === "Space" || e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "KeyW" || e.code === "KeyS") {
+            e.preventDefault(); // Mencegah scrolling browser
+        }
+    });
+    window.addEventListener("keyup", e => keys[e.code] = false);
+
+    // =========================================================================
+    // ENTIRE ENTITY CLASSES (POLIMORFISME & ENKAPSULASI)
+    // =========================================================================
+    
+    // Latar Belakang Parallaks Nebula Komit
+    class Star {
+        constructor() {
+            this.reset(true);
+        }
+        reset(randomY = false) {
+            this.x = Math.random() * canvas.width;
+            this.y = randomY? Math.random() * canvas.height : -10;
+            this.size = Math.random() * 2 + 0.5;
+            this.speed = Math.random() * 2 + 1;
+            this.color = Math.random() > 0.5? "rgba(0, 255, 255, " + Math.random() + ")" : "rgba(128, 0, 255, " + Math.random() + ")";
+        }
+        update() {
+            this.y += this.speed;
+            if (this.y > canvas.height) {
+                this.reset(false);
+            }
+        }
+        draw() {
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x, this.y, this.size, this.size);
+        }
+    }
+
+    // Pesawat Pemain - Menggunakan Skema Desain Logo appleidgaming
+    class Player {
+        constructor() {
+            this.width = 44;
+            this.height = 44;
+            this.x = canvas.width / 2 - this.width / 2;
+            this.y = canvas.height - 100;
+            this.speed = 5.5;
+            this.shootCooldown = 0;
+            this.glowDirection = 1;
+            this.glowIntensity = 10;
+        }
+        update() {
+            // Pergerakan Sumbu X dan Y
+            if (keys["ArrowLeft"] || keys["KeyA"]) this.x -= this.speed;
+            if (keys || keys) this.x += this.speed;
+            if (keys["ArrowUp"] || keys) this.y -= this.speed;
+            if (keys || keys) this.y += this.speed;
+
+            // Membatasi Pergerakan di Dalam Area Canvas
+            if (this.x < 0) this.x = 0;
+            if (this.x > canvas.width - this.width) this.x = canvas.width - this.width;
+            if (this.y < 0) this.y = 0;
+            if (this.y > canvas.height - this.height) this.y = canvas.height - this.height;
+
+            // Kontrol Cooldown Senjata
+            if (this.shootCooldown > 0) this.shootCooldown--;
+
+            if ((keys || keys["KeyK"]) && this.shootCooldown === 0) {
+                bullets.push(new Bullet(this.x + this.width / 2, this.y));
+                AudioSys.playLaser();
+                this.shootCooldown = 12; // Tingkat kecepatan tembak (frames)
+            }
+
+            // Efek Denyut Pendaran Orb Cyan
+            this.glowIntensity += 0.3 * this.glowDirection;
+            if (this.glowIntensity > 20 || this.glowIntensity < 8) {
+                this.glowDirection *= -1;
+            }
+        }
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = this.glowIntensity;
+            ctx.shadowColor = "#00ffff";
+
+            // Visualisasi Pesawat: Sayap Segitiga Presisi Bertema Nebula
+            ctx.fillStyle = "#8000ff";
+            ctx.beginPath();
+            ctx.moveTo(this.x + this.width / 2, this.y);
+            ctx.lineTo(this.x, this.y + this.height);
+            ctx.lineTo(this.x + this.width / 4, this.y + this.height * 0.85);
+            ctx.lineTo(this.x + (this.width * 3) / 4, this.y + this.height * 0.85);
+            ctx.lineTo(this.x + this.width, this.y + this.height);
+            ctx.closePath();
+            ctx.fill();
+
+            // Pendaran Sayap Luar (Cyan Accents)
+            ctx.strokeStyle = "#00ffff";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Kubah Inti: Menggambarkan Bola Cyan Utama pada Logo appleidgaming
+            ctx.beginPath();
+            ctx.arc(this.x + this.width / 2, this.y + this.height * 0.55, 7, 0, Math.PI * 2);
+            ctx.fillStyle = "#00ffff";
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
+
+    // Proyektil Energi Laser
+    class Bullet {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.radius = 3.5;
+            this.speed = 10;
+        }
+        update() {
+            this.y -= this.speed;
+        }
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = "#00ffff";
+            ctx.fillStyle = "#00ffff";
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // Entitas Musuh (Alien Raiders)
+    class Enemy {
+        constructor() {
+            this.width = 34;
+            this.height = 30;
+            this.x = Math.random() * (canvas.width - this.width);
+            this.y = -this.height;
+            this.speed = Math.random() * 2 + 1.5;
+            this.amplitude = Math.random() * 2; // Gerakan meliuk sinusoide
+            this.frequency = Math.random() * 0.02;
+            this.spawnTime = Date.now();
+        }
+        update() {
+            this.y += this.speed;
+            // Lintasan Sinusoidal Galaksi
+            this.x += Math.sin((Date.now() - this.spawnTime) * this.frequency) * this.amplitude;
+            
+            // Mencegah Musuh Keluar Samping Akibat Efek Sinus
+            if (this.x < 0) this.x = 0;
+            if (this.x > canvas.width - this.width) this.x = canvas.width - this.width;
+        }
+        draw() {
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#ff00aa";
+            
+            // Menggambar Bentuk Alien Fighter Geometris
+            ctx.fillStyle = "#ff00aa";
+            ctx.beginPath();
+            ctx.moveTo(this.x + this.width / 2, this.y + this.height);
+            ctx.lineTo(this.x, this.y);
+            ctx.lineTo(this.x + this.width, this.y);
+            ctx.closePath();
+            ctx.fill();
+
+            // Core Mesin Musuh (Glow Kuning)
+            ctx.fillStyle = "#ffff00";
+            ctx.fillRect(this.x + this.width / 2 - 3, this.y + 4, 6, 6);
+
+            ctx.restore();
+        }
+    }
+
+    // Manajemen Kumpulan Instansi
+    const stars = Array.from({ length: 100 }, () => new Star());
+    const player = new Player();
+    const bullets =;
+    const enemies =;
+    let enemySpawnCounter = 0;
+
+    function resetGameEngine() {
+        score = 0;
+        lives = 3;
+        isGameOver = false;
+        bullets.length = 0;
+        enemies.length = 0;
+        player.x = canvas.width / 2 - player.width / 2;
+        player.y = canvas.height - 100;
+        document.getElementById("score-val").innerText = score;
+        document.getElementById("lives-val").innerText = lives;
+        document.getElementById("lives-val").classList.remove("danger");
+    }
+
+    // Splash Screen Logo Geometris appleidgaming
+    function drawBrandSplashScreen() {
+        ctx.fillStyle = "rgba(10, 5, 25, 0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Render Perisai Pelindung dari Gambar 1
+        ctx.strokeStyle = "#8000ff";
+        ctx.lineWidth = 4;
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "#8000ff";
+        
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2 - 60, canvas.height / 2 - 80);
+        ctx.lineTo(canvas.width / 2 + 60, canvas.height / 2 - 80);
+        ctx.lineTo(canvas.width / 2 + 50, canvas.height / 2 + 10);
+        ctx.quadraticCurveTo(canvas.width / 2, canvas.height / 2 + 60, canvas.width / 2, canvas.height / 2 + 70);
+        ctx.quadraticCurveTo(canvas.width / 2, canvas.height / 2 + 60, canvas.width / 2 - 50, canvas.height / 2 + 10);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Render Figur Penyihir Berkerudung (Outline Sederhana)
+        ctx.fillStyle = "#020208";
+        ctx.fill();
+
+        ctx.fillStyle = "#00ffff";
+        ctx.shadowColor = "#00ffff";
+        ctx.font = "bold 16px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText("APPLE ID", canvas.width / 2, canvas.height / 2 - 40);
+        
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "14px Courier New";
+        ctx.fillText("GAMING", canvas.width / 2, canvas.height / 2 - 20);
+
+        // Glowing Orb Cyan Tengah
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, canvas.height / 2 + 20, 12, 0, Math.PI * 2);
+        ctx.fillStyle = "#00ffff";
+        ctx.fill();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 14px Courier New";
+        ctx.fillText("TEKAN UNTUK MEMULAI", canvas.width / 2, canvas.height - 150);
+    }
+
+    // =========================================================================
+    // CORE LOOP GAME ENGINE (SISTEM REAL-TIME RENDERING)
+    // =========================================================================
+    function gameLoop() {
+        // Pembersihan Layar Dasar
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Update & Render Bintang Kosmik
+        stars.forEach(star => {
+            star.update();
+            star.draw();
+        });
+
+        if (!isGameOver) {
+            if (score === 0 && enemies.length === 0 &&!keys["Enter"] && lives === 3) {
+                drawBrandSplashScreen();
+                if (keys["Enter"]) {
+                    AudioSys.init();
+                    score = 1; // Memicu transisi game
+                }
+            } else {
+                // Update Logika Pemain
+                player.update();
+                player.draw();
+
+                // Manajemen Peluru
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    bullets[i].update();
+                    bullets[i].draw();
+
+                    if (bullets[i].y < 0) {
+                        bullets.splice(i, 1);
+                    }
+                }
+
+                // Generator Pemunculan Musuh
+                enemySpawnCounter++;
+                if (enemySpawnCounter > 40) { // Setiap 40 frame (~0.6 detik)
+                    enemies.push(new Enemy());
+                    enemySpawnCounter = 0;
+                }
+
+                // Evaluasi Perilaku Musuh
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    enemies[i].update();
+                    enemies[i].draw();
+
+                    // Kondisi Musuh Mencapai Garis Batas Bawah Layar
+                    if (enemies[i].y > canvas.height) {
+                        enemies.splice(i, 1);
+                        lives--;
+                        document.getElementById("lives-val").innerText = lives;
+                        if (lives <= 1) {
+                            document.getElementById("lives-val").classList.add("danger");
+                        }
+                        if (lives <= 0) {
+                            isGameOver = true;
+                            AudioSys.playExplosion();
+                        }
+                        continue;
+                    }
+
+                    // Deteksi Tabrakan 1: Jarak Peluru ke Musuh (Euclidean Distance)
+                    for (let j = bullets.length - 1; j >= 0; j--) {
+                        let dx = (enemies[i].x + enemies[i].width / 2) - bullets[j].x;
+                        let dy = (enemies[i].y + enemies[i].height / 2) - bullets[j].y;
+                        let distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance < (enemies[i].width / 2 + bullets[j].radius)) {
+                            enemies.splice(i, 1);
+                            bullets.splice(j, 1);
+                            AudioSys.playExplosion();
+                            score += 10;
+                            document.getElementById("score-val").innerText = score;
+                            break;
+                        }
+                    }
+
+                    if (!enemies[i]) continue;
+
+                    // Deteksi Tabrakan 2: Jarak Musuh ke Pesawat Pemain (Euclidean Distance)
+                    let pDx = (player.x + player.width / 2) - (enemies[i].x + enemies[i].width / 2);
+                    let pDy = (player.y + player.height / 2) - (enemies[i].y + enemies[i].height / 2);
+                    let pDistance = Math.sqrt(pDx * pDx + pDy * pDy);
+
+                    if (pDistance < (player.width * 0.6 + enemies[i].width * 0.6)) {
+                        enemies.splice(i, 1);
+                        AudioSys.playExplosion();
+                        lives--;
+                        document.getElementById("lives-val").innerText = lives;
+                        if (lives <= 1) {
+                            document.getElementById("lives-val").classList.add("danger");
+                        }
+                        if (lives <= 0) {
+                            isGameOver = true;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Tampilan Layar Kematian (Game Over Screen)
+            ctx.fillStyle = "rgba(5, 2, 15, 0.9)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = "#ff0055";
+            ctx.fillStyle = "#ff0055";
+            ctx.font = "bold 28px Courier New";
+            ctx.textAlign = "center";
+            ctx.fillText("OPERASI GAGAL", canvas.width / 2, canvas.height / 2 - 30);
+            ctx.restore();
+
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "14px Courier New";
+            ctx.fillText("Skor Akhir: " + score + " Poin", canvas.width / 2, canvas.height / 2 + 10);
+            ctx.fillStyle = "#00ffff";
+            ctx.fillText("Tekan Untuk Regenerasi", canvas.width / 2, canvas.height / 2 + 50);
+
+            if (keys["Enter"]) {
+                resetGameEngine();
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // Eksekusi Render Game Awal
+    gameLoop();
+</script>
+</body>
+</html>
