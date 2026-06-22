@@ -1,0 +1,6 @@
+canvas {
+    display: block;
+    background-image: url('galaxy.jpg');
+    background-size: cover;
+    background-position: center;
+}
