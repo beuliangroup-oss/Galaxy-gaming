@@ -1,6 +1,6 @@
 canvas {
     display: block;
-    background-image: url('galaxy.jpg');
+    background-image: url('bg-galaxy.png');
     background-size: cover;
     background-position: center;
 }
